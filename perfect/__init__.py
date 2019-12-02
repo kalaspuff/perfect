@@ -1,3 +1,4 @@
+import copy
 from functools import update_wrapper
 import types
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Type, Union, cast  # noqa
@@ -11,15 +12,55 @@ __email__ = "hello@carloscar.com"
 
 class DecoratorMetaClass(type):
     def __new__(cls, name: str, bases: Tuple[type, ...], attributedict: Dict) -> "DecoratorMetaClass":
-        result: Type[DecoratorBaseClass] = type.__new__(cls, name, bases, attributedict)
+        try:
+            if any([issubclass(base, PerfectBaseClass) for base in bases]) and attributedict.get("_meta", True):
+                if attributedict.get("_meta", True):
+                    if bases == (perfect,):
+                        bases = (PerfectBaseClass,)
+
+                    decorator_attribute_dict = copy.copy(attributedict)
+                    decorator_attribute_dict["__perfect_name"] = name
+                    decorator_attribute_dict["_meta"] = False
+                    try:
+                        del decorator_attribute_dict["__module__"]
+                    except KeyError:  # pragma: no cover
+                        pass
+                    decorator: Type[DecoratorBaseClass] = type(name, bases, decorator_attribute_dict)
+                    attributedict["decorator"] = decorator
+            elif any([issubclass(base, DecoratorBaseClass) for base in bases]) and not attributedict.get("_meta", True):
+
+                def decorator_property(*args: Any, **kwargs: Any) -> None:
+                    raise AttributeError(f"'{name}.decorator' object cannot use 'decorator' property")
+
+                attributedict["__perfect_name"] = name
+                attributedict["decorator"] = property(decorator_property)
+        except NameError:
+            pass
+
+        result: DecoratorMetaClass = cast(DecoratorMetaClass, type.__new__(cls, name, bases, attributedict))
         return result
+
+    def __call__(metacls, *args: Any, **kwargs: Any) -> "DecoratorBaseClass":
+        cls = type.__call__(metacls, *args, **kwargs)
+        result = object.__new__(cls)
+        if not isinstance(result.__init__, types.FunctionType):
+            result.__init__ = result.__init__.__func__
+        result.__init__(result, *args, **kwargs)
+        return cast(DecoratorBaseClass, result)
+
+    def __repr__(self) -> str:
+        id_ = hex(id(self))
+        qualname = getattr(self, "__qualname__", "")
+        return f"<{qualname}.decorator object at {id_}>"
+
+    def __getitem__(self, item: Any) -> Any:
+        raise TypeError("argument of type 'module' is not iterable")
 
 
 class DecoratorBaseClass(metaclass=DecoratorMetaClass):
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        if not isinstance(self, perfect):
-            self._meta = False
+    _meta: bool = False
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         try:
             if self._args_is_decorated_function(*args, **kwargs):
                 func: Any = args[0]
@@ -46,13 +87,17 @@ class DecoratorBaseClass(metaclass=DecoratorMetaClass):
         except AttributeError:
             raise TypeError("'perfect.decorator' must wrap a function as argument or decorator")
 
+    def __new__(cls, *args: Any, **kwargs: Any) -> Any:
+        result = type(cls.__name__, (cls,), {})
+        return result
+
     def __repr__(self) -> str:
         id_ = hex(id(self))
+        qualname = getattr(self, "__qualname__", "") or getattr(self, "__perfect_name", "") or "perfect"
         if getattr(self, "_meta", False) or not getattr(self, "_wrapped_func", None):
-            return f"<perfect.decorator object at {id_}>"
+            return f"<{qualname}.decorator object at {id_}>"
 
         id_ = hex(id(getattr(self, "_wrapped_func", None)))
-        qualname = getattr(self, "__qualname__", "")
         return f"<function {qualname} at {id_}>"
 
     @classmethod
@@ -121,25 +166,25 @@ class DecoratorBaseClass(metaclass=DecoratorMetaClass):
 #        return return_value
 
 
-class perfect(DecoratorBaseClass):
+class PerfectBaseClass(DecoratorBaseClass):
+    _meta: bool = True
+    decorator: Type[DecoratorBaseClass]
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> Any:
+        if cls is perfect:
+            result = type("perfect", (DecoratorBaseClass,), {"_meta": False})
+        else:
+            result = type(cls.__name__, (cls,), {"_meta": False})
+        return result
+
+
+class perfect(PerfectBaseClass):
     __version__: str = __version__  # noqa
     __version_info__: Tuple[int, int, int] = __version_info__  # noqa
     __author__: str = __author__
     __email__: str = __email__
 
-    decorator: DecoratorBaseClass
-
-    def __new__(cls, *args: Any) -> "perfect":
-        result = cast(perfect, object.__new__(cls, *args))
-        result._meta = True
-
-        result.decorator = DecoratorBaseClass()
-        result.decorator._meta = True
-
-        return result
-
-    def __getitem__(self, item: Any) -> Any:
-        raise TypeError("argument of type 'module' is not iterable")
+    decorator: Type[DecoratorBaseClass] = type("perfect", (DecoratorBaseClass,), {"_meta": False})
 
 
-sys.modules[__name__] = perfect()  # type: ignore
+sys.modules[__name__] = perfect  # type: ignore

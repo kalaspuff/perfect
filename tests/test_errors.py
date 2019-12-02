@@ -12,8 +12,6 @@ def test_missing_func(value):
 
 @pytest.mark.parametrize("value", [perfect, decorator, perfect.decorator])
 def test_invalid_construct(value):
-    assert value._meta is True
-
     new_value = value()
     assert new_value._meta is False
     with pytest.raises(TypeError):

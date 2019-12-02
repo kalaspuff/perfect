@@ -12,6 +12,34 @@ __email__ = "hello@carloscar.com"
 
 class DecoratorMetaClass(type):
     def __new__(cls, name: str, bases: Tuple[type, ...], attributedict: Dict) -> "DecoratorMetaClass":
+        if "__perfect_name" in attributedict:
+            return cast(DecoratorMetaClass, type.__new__(cls, name, bases, attributedict))
+
+        try:
+            if bases == (PerfectBaseClass,):
+                decorator_attribute_dict = copy.copy(attributedict)
+                decorator_attribute_dict["__perfect_name"] = name
+                decorator_attribute_dict["_meta"] = True
+                try:
+                    del decorator_attribute_dict["__module__"]
+                except KeyError:  # pragma: no cover
+                    pass
+                _decorator: Type[DecoratorBaseClass] = cast(
+                    Type[DecoratorBaseClass], type(name, (DecoratorBaseClass,), decorator_attribute_dict)
+                )
+                attributedict["_decorator"] = _decorator
+
+                def partial(self: Any, func: Callable) -> Callable:
+                    def _func(*args: Any, **kwargs: Any) -> Any:
+                        return func(self, *args, **kwargs)
+
+                    return _func
+
+                attributedict["decorator"] = partial(_decorator, _decorator.__call__)
+                attributedict["perfect"] = attributedict["decorator"]
+        except NameError:
+            pass
+
         try:
             if any([issubclass(base, PerfectBaseClass) for base in bases]) and attributedict.get("_meta", True):
                 if attributedict.get("_meta", True):
@@ -20,12 +48,14 @@ class DecoratorMetaClass(type):
 
                     decorator_attribute_dict = copy.copy(attributedict)
                     decorator_attribute_dict["__perfect_name"] = name
-                    decorator_attribute_dict["_meta"] = False
+                    decorator_attribute_dict["_meta"] = True
                     try:
                         del decorator_attribute_dict["__module__"]
                     except KeyError:  # pragma: no cover
                         pass
-                    decorator: Type[DecoratorBaseClass] = type(name, bases, decorator_attribute_dict)
+                    decorator: DecoratorBaseClass = cast(
+                        DecoratorBaseClass, type(name, bases, decorator_attribute_dict)
+                    )
                     attributedict["decorator"] = decorator
             elif any([issubclass(base, DecoratorBaseClass) for base in bases]) and not attributedict.get("_meta", True):
 
@@ -168,7 +198,8 @@ class DecoratorBaseClass(metaclass=DecoratorMetaClass):
 
 class PerfectBaseClass(DecoratorBaseClass):
     _meta: bool = True
-    decorator: Type[DecoratorBaseClass]
+    _decorator: Type[DecoratorBaseClass]
+    decorator: DecoratorBaseClass
 
     def __new__(cls, *args: Any, **kwargs: Any) -> Any:
         if cls is perfect:
@@ -184,7 +215,7 @@ class perfect(PerfectBaseClass):
     __author__: str = __author__
     __email__: str = __email__
 
-    decorator: Type[DecoratorBaseClass] = type("perfect", (DecoratorBaseClass,), {"_meta": False})
+    perfect: DecoratorBaseClass
 
 
 sys.modules[__name__] = perfect  # type: ignore
